@@ -1,0 +1,83 @@
+Bootstrap: library
+From: ubuntu:20.04
+
+%labels
+	Author florian
+	Version v0.0.1
+
+%help
+	This is a singularity container for pseudo-distributed single-node Hadoop
+
+	Hadoop installation folder: /opt/hadoop
+	Hadoop data folder: /var/lib/hadoop
+	Hadoop log files: /opt/hadoop/log
+	Hadoop configuration folder: /opt/hadoop/etc/hadoop
+
+	sshd listens on port 12121 (only used internally)
+
+	To run:
+	
+	singularity instance start -B /tmp/hadoop/data:/var/lib/hadoop -B /tmp/hadoop/logs:/opt/hadoop/logs hadoop myhadoop
+
+	singularity shell instance://myhadoop
+
+	> hdfs namenode -format
+	> /opt/hadoop/sbin/start-all.sh
+	> hadoop fs -mkdir -p /user/$USER
+
+	To stop:
+
+        singularity instance stop myhadoop
+
+
+%setup
+	#mkdir -p ${SINGULARITY_ROOTFS}/config
+%files
+	config /
+
+%post
+	export HADOOP_VERSION=3.3.2
+	export HADOOP_PREFIX=/opt/hadoop
+	
+	apt-get update && apt-get install -y wget ssh
+	apt-get install -y openjdk-11-jdk openssh-server
+
+	wget -O /tmp/hadoop-${HADOOP_VERSION}.tar.gz  https://dlcdn.apache.org/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz
+	tar -C /opt -xf /tmp/hadoop-${HADOOP_VERSION}.tar.gz \
+	&& ln -s /opt/hadoop-${HADOOP_VERSION} ${HADOOP_PREFIX} \
+    	&& mkdir /var/lib/hadoop
+
+	cp /config/* ${HADOOP_PREFIX}/etc/hadoop
+
+	# suppress host key checking and warnings
+	echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
+	echo "UserKnownHostsFile /dev/null" >> /etc/ssh/ssh_config
+	echo "LogLevel ERROR" >> /etc/ssh/ssh_config
+
+	# make hostkey accessible to sshd invocation by user 
+	chmod 755 /etc/ssh
+	chmod 655 /etc/ssh/*
+
+	# cleanup
+	rm -r /var/cache/apt /var/lib/apt/lists /tmp/hadoop-${HADOOP_VERSION}.tar*
+	rm -r /config
+
+%environment
+	# export SINGULARITY_SHELL in order for /etc/bash.bashrc to be loaded
+	## export SINGULARITY_SHELL=/bin/bash
+
+	export HADOOP_HOME=/opt/hadoop
+	export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+	export PATH=$PATH:$HADOOP_HOME/bin
+	
+	# make sure hadoop ssh into singularity container, not host
+	export HADOOP_SSH_OPTS="-p 12121"
+
+%startscript
+	# start sshd
+	/usr/sbin/sshd -p 12121 -o UsePAM=no -h /etc/ssh/ssh_host_rsa_key
+
+	# start hadoop	
+	/opt/hadoop/sbin/start-dfs.sh
+	/opt/hadoop/sbin/start-yarn.sh
+	

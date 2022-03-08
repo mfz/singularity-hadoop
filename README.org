@@ -1,0 +1,103 @@
+* Running Hadoop-3.3.2 in singularity container
+
+This repository provides a Singularity definition file and Hadoop
+configuration files for a single-node pseudo-distributed Hadoop
+development environment.
+
+Important:
+
+The user needs to have ssh key pairs defines in `~/.ssh` and set up
+`~/.ssh/authorized_keys` for ssh login /without passphrase/.  I.e. `ssh
+localhost` should work without needing to type in a passphrase or
+password.
+
+#+BEGIN_SRC sh
+    ssh-keygen
+    cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+    chmod 600 ~/.ssh/authorized_keys
+#+END_SRC
+
+
+
+** Build singularity container
+
+   Configuration files for the hadoop environment are in the `config`
+   directory.
+   
+   #+BEGIN_SRC sh
+     sudo singularity build hadoop.sif hadoop.def
+   #+END_SRC
+
+   
+** Initialize HDFS volume
+   
+   Create directories for logs and HDFS data
+
+   #+BEGIN_SRC sh
+     mkdir -p /tmp/hadoop/logs
+     mkdir -p /tmp/hadoop/data
+   #+END_SRC
+
+
+   Format HDFS data volume
+
+   #+BEGIN_SRC sh
+     singularity exec \
+		 -B /tmp/hadoop/data:/var/lib/hadoop \
+		 -B /tmp/hadoop/logs:/opt/hadoop/logs \
+		 hadoop.sif \
+		 hdfs namenode -format
+   #+END_SRC
+
+
+** Use instance
+
+   Start instance
+
+   #+BEGIN_SRC sh
+     singularity instance start \
+		 -B /tmp/hadoop/data:/var/lib/hadoop \
+		 -B /tmp/hadoop/logs:/opt/hadoop/logs \
+		 hadoop.sif \
+		 myhadoop
+   #+END_SRC
+
+   This starts the sshd server, Hadoop DFS, and Hadoop YARN.
+
+   Run shell in instance to do work
+
+   #+BEGIN_SRC sh
+     singularity shell instance://myhadoop
+   #+END_SRC
+
+   The first step is usually to create a HDFS user directory
+
+     hadoop fs -mkdir -p /user/$USER
+     hadoop fs -chown $USER:$USER /user/$USER
+
+   
+   Stop instance when done
+
+   #+BEGIN_SRC sh
+     singularity instance stop myhadoop
+   #+END_SRC
+
+
+** Comments
+
+   The main difficulty in setting up this environment was the fact
+   that in a pseudo-distributed environment hadoop tries to `ssh`
+   into the (pseudo) nodes to start up the services.
+
+   As the singularity container uses the same network namespace as the
+   host, default ssh connections (using port 22) connect to the host,
+   not the singularity instance.
+
+   The solution is to run a separate ssh-server within the singularity
+   container that listens at a different port (we use 12121), and to
+   instruct hadoop to use that port by setting the environment
+   variable `HADOOP_SSH_OPTS = "-p 12121"`.
+
+   The user needs to have ssh key pairs defines in `~/.ssh` and set up
+   `~/.ssh/authorized_keys` for ssh login without passphrase.
+   
